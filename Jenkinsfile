@@ -59,22 +59,33 @@ pipeline {
         }
 
         stage('deploy to EKS') {
-            steps {
-                echo 'deploying to AWS EKS'
-                sh '''
-                    aws eks update-kubeconfig \
-                        --region ${AWS_REGION} \
-                        --name ${CLUSTER_NAME}
+    steps {
+        echo 'deploying to AWS EKS'
 
-                    kubectl apply -f kubernetes/backend-deployment.yaml
-                    kubectl apply -f kubernetes/frontend-deployment.yaml
-                    kubectl apply -f kubernetes/ingress.yaml
+        withCredentials([
+            string(credentialsId: 'aws-access-key-id', variable: 'AWS_ACCESS_KEY_ID'),
+            string(credentialsId: 'aws-secret-access-key', variable: 'AWS_SECRET_ACCESS_KEY')
+        ]) {
 
-                    kubectl rollout restart deployment realtalk-backend
-                    kubectl rollout restart deployment realtalk-frontend
-                '''
-            }
+            sh '''
+                export AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID
+                export AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY
+                export AWS_DEFAULT_REGION=${AWS_REGION}
+
+                aws eks update-kubeconfig \
+                    --region ${AWS_REGION} \
+                    --name ${CLUSTER_NAME}
+
+                kubectl apply -f kubernetes/backend-deployment.yaml
+                kubectl apply -f kubernetes/frontend-deployment.yaml
+                kubectl apply -f kubernetes/ingress.yaml
+
+                kubectl rollout restart deployment realtalk-backend
+                kubectl rollout restart deployment realtalk-frontend
+            '''
         }
+    }
+}
 
         stage('verify deployment') {
             steps {
