@@ -66,9 +66,13 @@ pipeline {
                         --region ${AWS_REGION} \
                         --name ${CLUSTER_NAME}
 
-                    kubectl apply -f kubernetes/backend-deployment.yaml
-                    kubectl apply -f kubernetes/frontend-deployment.yaml
-                    kubectl apply -f kubernetes/ingress.yaml
+                    echo "Current workspace: ${WORKSPACE}"
+                    ls -la ${WORKSPACE}
+                    ls -la ${WORKSPACE}/kubernetes/
+
+                    kubectl apply -f ${WORKSPACE}/kubernetes/backend-deployment.yaml
+                    kubectl apply -f ${WORKSPACE}/kubernetes/frontend-deployment.yaml
+                    kubectl apply -f ${WORKSPACE}/kubernetes/ingress.yaml
 
                     kubectl rollout restart deployment realtalk-backend
                     kubectl rollout restart deployment realtalk-frontend
