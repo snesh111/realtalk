@@ -11,16 +11,16 @@ pipeline {
 
     stages {
 
-        stage('checkout') {
+        stage('Checkout') {
             steps {
-                echo 'Checking out code from github'
+                echo 'Checking out code from GitHub'
                 checkout scm
             }
         }
 
-        stage('build backend image') {
+        stage('Build Backend Image') {
             steps {
-                echo 'building backend docker image'
+                echo 'Building backend Docker image'
                 dir('backend') {
                     sh 'docker build -t ${BACKEND_IMAGE}:latest .'
                     sh 'docker tag ${BACKEND_IMAGE}:latest ${BACKEND_IMAGE}:${BUILD_NUMBER}'
@@ -28,9 +28,9 @@ pipeline {
             }
         }
 
-        stage('build frontend image') {
+        stage('Build Frontend Image') {
             steps {
-                echo 'building frontend docker image'
+                echo 'Building frontend Docker image'
                 dir('frontend') {
                     sh 'docker build -t ${FRONTEND_IMAGE}:latest .'
                     sh 'docker tag ${FRONTEND_IMAGE}:latest ${FRONTEND_IMAGE}:${BUILD_NUMBER}'
@@ -38,9 +38,9 @@ pipeline {
             }
         }
 
-        stage('push to docker hub') {
+        stage('Push to Docker Hub') {
             steps {
-                echo 'pushing images to docker hub'
+                echo 'Pushing images to Docker Hub'
                 withCredentials([usernamePassword(
                     credentialsId: 'dockerhub',
                     usernameVariable: 'DOCKER_USER',
@@ -58,46 +58,35 @@ pipeline {
             }
         }
 
-        stage('deploy to EKS') {
-    steps {
-        echo 'deploying to AWS EKS'
+        stage('Deploy to EKS') {
+            steps {
+                echo 'Deploying to AWS EKS'
+                sh '''
+                    aws eks update-kubeconfig \
+                        --region ${AWS_REGION} \
+                        --name ${CLUSTER_NAME}
 
-        withCredentials([
-            string(credentialsId: 'aws-access-key-id', variable: 'AWS_ACCESS_KEY_ID'),
-            string(credentialsId: 'aws-secret-access-key', variable: 'AWS_SECRET_ACCESS_KEY')
-        ]) {
+                    kubectl apply -f kubernetes/backend-deployment.yaml
+                    kubectl apply -f kubernetes/frontend-deployment.yaml
+                    kubectl apply -f kubernetes/ingress.yaml
 
-            sh '''
-                export AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID
-                export AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY
-                export AWS_DEFAULT_REGION=${AWS_REGION}
-
-                aws eks update-kubeconfig \
-                    --region ${AWS_REGION} \
-                    --name ${CLUSTER_NAME}
-
-                kubectl apply -f kubernetes/backend-deployment.yaml
-                kubectl apply -f kubernetes/frontend-deployment.yaml
-                kubectl apply -f kubernetes/ingress.yaml
-
-                kubectl rollout restart deployment realtalk-backend
-                kubectl rollout restart deployment realtalk-frontend
-            '''
+                    kubectl rollout restart deployment realtalk-backend
+                    kubectl rollout restart deployment realtalk-frontend
+                '''
+            }
         }
-    }
-}
 
-        stage('verify deployment') {
+        stage('Verify Deployment') {
             steps {
                 echo 'Verifying deployment'
                 sh '''
                     kubectl rollout status deployment realtalk-backend
                     kubectl rollout status deployment realtalk-frontend
-                    echo "---"
+                    echo "━━━━━━━━━━━━━━━━━━━━━━━━"
                     kubectl get pods
-                    echo "---"
+                    echo "━━━━━━━━━━━━━━━━━━━━━━━━"
                     kubectl get services
-                    echo "---"
+                    echo "━━━━━━━━━━━━━━━━━━━━━━━━"
                     kubectl get ingress
                 '''
             }
@@ -106,18 +95,13 @@ pipeline {
 
     post {
         success {
-            echo '''
-              pipeline SUCCESS!!!
-            --------
-            RealTalk deployed on EKS!
-            --------
-            '''
+            echo '🎉 Pipeline SUCCESS! RealTalk deployed on EKS!'
         }
         failure {
-            echo 'pipeline FAILED! Check logs above.'
+            echo '❌ Pipeline FAILED! Check logs above.'
         }
         always {
-            echo 'cleaning up unused docker images...'
+            echo 'Cleaning up unused Docker images...'
             sh 'docker image prune -f || true'
         }
     }
