@@ -1,0 +1,41 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: realtalk-frontend
+  labels:
+    app: realtalk-frontend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: realtalk-frontend
+  template:
+    metadata:
+      labels:
+        app: realtalk-frontend
+    spec:
+      containers:
+      - name: realtalk-frontend
+        image: snesh111/real_talk-frontend:latest
+        ports:
+        - containerPort: 80
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: realtalk-frontend-service
+spec:
+  selector:
+    app: realtalk-frontend
+  ports:
+  - protocol: TCP
+    port: 80
+    targetPort: 80
+  type: ClusterIP
