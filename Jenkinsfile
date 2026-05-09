@@ -78,9 +78,16 @@ pipeline {
                     --region ${AWS_REGION} \
                     --name ${CLUSTER_NAME}
 
-                # Install NGINX Ingress Controller if not exists
+                # Install ingress controller if not exists
                 kubectl get namespace ingress-nginx || \
                 kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.8.2/deploy/static/provider/aws/deploy.yaml
+
+                # Wait for ingress controller to become ready
+                kubectl wait \
+                --namespace ingress-nginx \
+                --for=condition=ready pod \
+                --selector=app.kubernetes.io/component=controller \
+                --timeout=300s
 
                 # Fetch secrets from AWS Secrets Manager
                 SECRET_JSON=$(aws secretsmanager get-secret-value \
