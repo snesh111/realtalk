@@ -11,16 +11,16 @@ pipeline {
 
     stages {
 
-        stage('Checkout') {
+        stage('checkout') {
             steps {
-                echo 'Checking out code from GitHub'
+                echo 'checking out code from github'
                 checkout scm
             }
         }
 
-        stage('Build Backend Image') {
+        stage('build backend image') {
             steps {
-                echo 'Building backend Docker image'
+                echo 'building backend docker image'
                 dir('backend') {
                     sh 'docker build -t ${BACKEND_IMAGE}:latest .'
                     sh 'docker tag ${BACKEND_IMAGE}:latest ${BACKEND_IMAGE}:${BUILD_NUMBER}'
@@ -28,9 +28,9 @@ pipeline {
             }
         }
 
-        stage('Build Frontend Image') {
+        stage('build frontend image') {
             steps {
-                echo 'Building frontend Docker image'
+                echo 'building frontend docker image'
                 dir('frontend') {
                     sh 'docker build -t ${FRONTEND_IMAGE}:latest .'
                     sh 'docker tag ${FRONTEND_IMAGE}:latest ${FRONTEND_IMAGE}:${BUILD_NUMBER}'
@@ -38,9 +38,9 @@ pipeline {
             }
         }
 
-        stage('Push to Docker Hub') {
+        stage('push to docker hub') {
             steps {
-                echo 'Pushing images to Docker Hub'
+                echo 'pushing images to docker hub'
                 withCredentials([usernamePassword(
                     credentialsId: 'dockerhub',
                     usernameVariable: 'DOCKER_USER',
@@ -58,9 +58,9 @@ pipeline {
             }
         }
 
-        stage('Deploy to EKS') {
+        stage('deploy to EKS') {
     steps {
-        echo 'Deploying to AWS EKS'
+        echo 'deploying to AWS EKS'
 
         withCredentials([
             string(credentialsId: 'aws-access-key-id',
@@ -78,32 +78,29 @@ pipeline {
                     --region ${AWS_REGION} \
                     --name ${CLUSTER_NAME}
 
-                # Install ingress controller if not exists
                 kubectl get namespace ingress-nginx || \
-                kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.8.2/deploy/static/provider/aws/deploy.yaml
-
-                # Wait for ingress controller to become ready
+                kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.8.2/deploy/static/provider/aws/deploy.yaml        
                 kubectl wait \
                 --namespace ingress-nginx \
                 --for=condition=ready pod \
                 --selector=app.kubernetes.io/component=controller \
                 --timeout=300s
 
-                # Fetch secrets from AWS Secrets Manager
+
                 SECRET_JSON=$(aws secretsmanager get-secret-value \
                   --secret-id realtalk-prod \
                   --region ${AWS_REGION} \
                   --query SecretString \
                   --output text)
 
-                # Extract values using jq
+
                 MONGO_URI=$(echo $SECRET_JSON | jq -r .MONGO_URI)
                 JWT_SECRET=$(echo $SECRET_JSON | jq -r .JWT_SECRET)
                 CLOUDINARY_CLOUD_NAME=$(echo $SECRET_JSON | jq -r .CLOUDINARY_CLOUD_NAME)
                 CLOUDINARY_API_KEY=$(echo $SECRET_JSON | jq -r .CLOUDINARY_API_KEY)
                 CLOUDINARY_API_SECRET=$(echo $SECRET_JSON | jq -r .CLOUDINARY_API_SECRET)
 
-                # Create or update Kubernetes secret
+
                 kubectl create secret generic realtalk-secrets \
                   --from-literal=MONGO_URI="$MONGO_URI" \
                   --from-literal=JWT_SECRET="$JWT_SECRET" \
@@ -112,29 +109,29 @@ pipeline {
                   --from-literal=CLOUDINARY_API_SECRET="$CLOUDINARY_API_SECRET" \
                   --dry-run=client -o yaml | kubectl apply -f -
 
-                # Deploy application
+
                 kubectl apply -f ${WORKSPACE}/kubernetes/backend-deployment.yaml
                 kubectl apply -f ${WORKSPACE}/kubernetes/frontend-deployment.yaml
                 kubectl apply -f ${WORKSPACE}/kubernetes/ingress.yaml
 
-                # Restart deployments
+
                 kubectl rollout restart deployment realtalk-backend
                 kubectl rollout restart deployment realtalk-frontend
             '''
         }
     }
 }
-        stage('Verify Deployment') {
+        stage('verify deployment') {
             steps {
                 echo 'Verifying deployment'
                 sh '''
                     kubectl rollout status deployment realtalk-backend --timeout=300s
                     kubectl rollout status deployment realtalk-frontend --timeout=300s
-                    echo "━━━━━━━━━━━━━━━━━━━━━━━━"
+                    echo "-----"
                     kubectl get pods
-                    echo "━━━━━━━━━━━━━━━━━━━━━━━━"
+                    echo "-----"
                     kubectl get services
-                    echo "━━━━━━━━━━━━━━━━━━━━━━━━"
+                    echo "-----"
                     kubectl get ingress
                 '''
             }
@@ -143,10 +140,10 @@ pipeline {
 
     post {
         success {
-            echo '🎉 Pipeline SUCCESS! RealTalk deployed on EKS!'
+            echo 'pipeline SUCCESS! deploed on EKS'
         }
         failure {
-            echo '❌ Pipeline FAILED! Check logs above.'
+            echo 'pipeline FAILED!'
         }
         always {
             echo 'Cleaning up unused Docker images...'
