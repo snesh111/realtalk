@@ -61,22 +61,42 @@ pipeline {
         stage('Deploy to EKS') {
             steps {
                 echo 'Deploying to AWS EKS'
-                sh '''
-                    aws eks update-kubeconfig \
-                        --region ${AWS_REGION} \
-                        --name ${CLUSTER_NAME}
+                withCredentials([
+                    string(credentialsId: 'aws-access-key-id',
+                           variable: 'AWS_ACCESS_KEY_ID'),
+                    string(credentialsId: 'aws-secret-access-key',
+                           variable: 'AWS_SECRET_ACCESS_KEY')
+                ]) {
+                    sh '''
+                        export AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID
+                        export AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY
+                        export AWS_DEFAULT_REGION=${AWS_REGION}
 
-                    echo "Current workspace: ${WORKSPACE}"
-                    ls -la ${WORKSPACE}
-                    ls -la ${WORKSPACE}/kubernetes/
+                        aws eks update-kubeconfig \
+                            --region ${AWS_REGION} \
+                            --name ${CLUSTER_NAME}
 
-                    kubectl apply -f ${WORKSPACE}/kubernetes/backend-deployment.yaml
-                    kubectl apply -f ${WORKSPACE}/kubernetes/frontend-deployment.yaml
-                    kubectl apply -f ${WORKSPACE}/kubernetes/ingress.yaml
+                        # Install Ingress Controller if not exists
+                        kubectl get namespace ingress-nginx || \
+                        kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.8.2/deploy/static/provider/aws/deploy.yaml
 
-                    kubectl rollout restart deployment realtalk-backend
-                    kubectl rollout restart deployment realtalk-frontend
-                '''
+                        # Create secrets if not exists
+                        kubectl get secret realtalk-secrets || \
+                        kubectl create secret generic realtalk-secrets \
+                            --from-literal=MONGO_URI="${MONGO_URI}" \
+                            --from-literal=JWT_SECRET="${JWT_SECRET}" \
+                            --from-literal=CLOUDINARY_CLOUD_NAME="${CLOUDINARY_CLOUD_NAME}" \
+                            --from-literal=CLOUDINARY_API_KEY="${CLOUDINARY_API_KEY}" \
+                            --from-literal=CLOUDINARY_API_SECRET="${CLOUDINARY_API_SECRET}"
+
+                        kubectl apply -f ${WORKSPACE}/kubernetes/backend-deployment.yaml
+                        kubectl apply -f ${WORKSPACE}/kubernetes/frontend-deployment.yaml
+                        kubectl apply -f ${WORKSPACE}/kubernetes/ingress.yaml
+
+                        kubectl rollout restart deployment realtalk-backend
+                        kubectl rollout restart deployment realtalk-frontend
+                    '''
+                }
             }
         }
 
@@ -84,8 +104,8 @@ pipeline {
             steps {
                 echo 'Verifying deployment'
                 sh '''
-                    kubectl rollout status deployment realtalk-backend
-                    kubectl rollout status deployment realtalk-frontend
+                    kubectl rollout status deployment realtalk-backend --timeout=300s
+                    kubectl rollout status deployment realtalk-frontend --timeout=300s
                     echo "━━━━━━━━━━━━━━━━━━━━━━━━"
                     kubectl get pods
                     echo "━━━━━━━━━━━━━━━━━━━━━━━━"
