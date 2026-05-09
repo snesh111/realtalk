@@ -59,47 +59,64 @@ pipeline {
         }
 
         stage('Deploy to EKS') {
-            steps {
-                echo 'Deploying to AWS EKS'
-                withCredentials([
-                    string(credentialsId: 'aws-access-key-id',
-                           variable: 'AWS_ACCESS_KEY_ID'),
-                    string(credentialsId: 'aws-secret-access-key',
-                           variable: 'AWS_SECRET_ACCESS_KEY')
-                ]) {
-                    sh '''
-                        export AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID
-                        export AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY
-                        export AWS_DEFAULT_REGION=${AWS_REGION}
+    steps {
+        echo 'Deploying to AWS EKS'
 
-                        aws eks update-kubeconfig \
-                            --region ${AWS_REGION} \
-                            --name ${CLUSTER_NAME}
+        withCredentials([
+            string(credentialsId: 'aws-access-key-id',
+                   variable: 'AWS_ACCESS_KEY_ID'),
+            string(credentialsId: 'aws-secret-access-key',
+                   variable: 'AWS_SECRET_ACCESS_KEY')
+        ]) {
 
-                        # Install Ingress Controller if not exists
-                        kubectl get namespace ingress-nginx || \
-                        kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.8.2/deploy/static/provider/aws/deploy.yaml
+            sh '''
+                export AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID
+                export AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY
+                export AWS_DEFAULT_REGION=${AWS_REGION}
 
-                        # Create secrets if not exists
-                        kubectl get secret realtalk-secrets || \
-                        kubectl create secret generic realtalk-secrets \
-                            --from-literal=MONGO_URI="${MONGO_URI}" \
-                            --from-literal=JWT_SECRET="${JWT_SECRET}" \
-                            --from-literal=CLOUDINARY_CLOUD_NAME="${CLOUDINARY_CLOUD_NAME}" \
-                            --from-literal=CLOUDINARY_API_KEY="${CLOUDINARY_API_KEY}" \
-                            --from-literal=CLOUDINARY_API_SECRET="${CLOUDINARY_API_SECRET}"
+                aws eks update-kubeconfig \
+                    --region ${AWS_REGION} \
+                    --name ${CLUSTER_NAME}
 
-                        kubectl apply -f ${WORKSPACE}/kubernetes/backend-deployment.yaml
-                        kubectl apply -f ${WORKSPACE}/kubernetes/frontend-deployment.yaml
-                        kubectl apply -f ${WORKSPACE}/kubernetes/ingress.yaml
+                # Install NGINX Ingress Controller if not exists
+                kubectl get namespace ingress-nginx || \
+                kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.8.2/deploy/static/provider/aws/deploy.yaml
 
-                        kubectl rollout restart deployment realtalk-backend
-                        kubectl rollout restart deployment realtalk-frontend
-                    '''
-                }
-            }
+                # Fetch secrets from AWS Secrets Manager
+                SECRET_JSON=$(aws secretsmanager get-secret-value \
+                  --secret-id realtalk-prod \
+                  --region ${AWS_REGION} \
+                  --query SecretString \
+                  --output text)
+
+                # Extract values using jq
+                MONGO_URI=$(echo $SECRET_JSON | jq -r .MONGO_URI)
+                JWT_SECRET=$(echo $SECRET_JSON | jq -r .JWT_SECRET)
+                CLOUDINARY_CLOUD_NAME=$(echo $SECRET_JSON | jq -r .CLOUDINARY_CLOUD_NAME)
+                CLOUDINARY_API_KEY=$(echo $SECRET_JSON | jq -r .CLOUDINARY_API_KEY)
+                CLOUDINARY_API_SECRET=$(echo $SECRET_JSON | jq -r .CLOUDINARY_API_SECRET)
+
+                # Create or update Kubernetes secret
+                kubectl create secret generic realtalk-secrets \
+                  --from-literal=MONGO_URI="$MONGO_URI" \
+                  --from-literal=JWT_SECRET="$JWT_SECRET" \
+                  --from-literal=CLOUDINARY_CLOUD_NAME="$CLOUDINARY_CLOUD_NAME" \
+                  --from-literal=CLOUDINARY_API_KEY="$CLOUDINARY_API_KEY" \
+                  --from-literal=CLOUDINARY_API_SECRET="$CLOUDINARY_API_SECRET" \
+                  --dry-run=client -o yaml | kubectl apply -f -
+
+                # Deploy application
+                kubectl apply -f ${WORKSPACE}/kubernetes/backend-deployment.yaml
+                kubectl apply -f ${WORKSPACE}/kubernetes/frontend-deployment.yaml
+                kubectl apply -f ${WORKSPACE}/kubernetes/ingress.yaml
+
+                # Restart deployments
+                kubectl rollout restart deployment realtalk-backend
+                kubectl rollout restart deployment realtalk-frontend
+            '''
         }
-
+    }
+}
         stage('Verify Deployment') {
             steps {
                 echo 'Verifying deployment'
